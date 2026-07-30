@@ -1,26 +1,516 @@
 @import "tailwindcss";
 
+/* next-themes sets class="dark" on <html>; wire Tailwind's dark: variant to it. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Same idea for the MONOSPACED control, which sets class="mono" on <html>.
+   Having a variant means the toggle can paint its own checked state from CSS
+   instead of React state, so it is correct on the first frame. */
+@custom-variant mono (&:where(.mono, .mono *));
+
+/*
+  ── Palette ───────────────────────────────────────────────────────────────
+  Monochrome, and now literally so — the trace of chroma the previous design
+  carried has been dropped. The grain field is the only large tonal mass on
+  the page, and any hue in the greys shows up in it as a colour cast.
+
+  Hierarchy comes from weight and scale: one very light display face against
+  small semibold text. That contrast is the whole typographic system.
+*/
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: oklch(0.925 0 0);
+  --foreground: oklch(0.185 0 0);
+
+  --muted-foreground: oklch(0.44 0 0);
+  /* Tertiary. Carries real text (edge labels, metadata) as well as link
+     underlines, so it must clear 4.5:1 — not the 3:1 a rule would need. */
+  --faint: oklch(0.5 0 0);
+
+  /* The frame and section rules. Deliberately near the threshold of
+     visibility: it should register as an edge, not as a line. */
+  --border: oklch(0.78 0 0);
+  --muted: oklch(0.895 0 0);
+  --ring: oklch(0.4 0 0);
+
+  /* Grain field. --grain-core is the density at the centre of the blob. */
+  --grain-core: oklch(0.36 0 0);
+  --grain-opacity: 0.72;
+}
+
+.dark {
+  --background: oklch(0.155 0 0);
+  --foreground: oklch(0.93 0 0);
+
+  --muted-foreground: oklch(0.66 0 0);
+  --faint: oklch(0.58 0 0);
+
+  --border: oklch(0.33 0 0);
+  --muted: oklch(0.22 0 0);
+  --ring: oklch(0.7 0 0);
+
+  --grain-core: oklch(0.88 0 0);
+  --grain-opacity: 0.62;
+}
+
+/*
+  Body face is indirected through --font-body so the MONOSPACED edge control
+  can swap it by toggling one class on <html>. The display face never changes:
+  at 200 weight the mono face has no equivalent, and the swap is meant to
+  restyle the reading text, not the nameplate.
+*/
+:root {
+  --font-body: var(--font-geist-sans);
+}
+
+html.mono {
+  --font-body: var(--font-geist-mono);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-faint: var(--faint);
+  --color-border: var(--border);
+  --color-input: var(--border);
+  --color-ring: var(--ring);
+
+  --font-sans: var(--font-body);
   --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-geist-sans);
+
+  /* Nothing on the page is rounded. The frame, the checkboxes and the rules
+     are all square, and a radius anywhere breaks that. */
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
+  font-size: 14px;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  line-height: 1.6;
+  letter-spacing: -0.006em;
+}
+
+/*
+  ── The frame ─────────────────────────────────────────────────────────────
+  A hairline inset from the viewport on all four sides, fixed, drawn over
+  everything. Content scrolls underneath it and is padded clear of it.
+
+  This is the single strongest structural move in the design: it turns the
+  browser window into a mounted print rather than a document, which is what
+  makes the enormous white space read as composition instead of emptiness.
+*/
+:root {
+  --frame: 0.875rem;
+  /* Clear of the frame, plus breathing room. Sections align to this. */
+  --gutter: 3.75rem;
+}
+
+@media (max-width: 767px) {
+  :root {
+    --frame: 0.5rem;
+    --gutter: 1.75rem;
+  }
+}
+
+[id] {
+  scroll-margin-top: calc(var(--frame) + 3rem);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+:focus-visible {
+  outline: 1px solid var(--ring);
+  outline-offset: 3px;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+@layer components {
+  /*
+    ── Grain field ─────────────────────────────────────────────────────────
+    The hero's tonal mass. Two pieces do the work:
+
+      background   — the interference fringes, generated in Fringes.tsx
+      --noise      — tiling fractal noise, applied as a mask
+
+    Masking the pattern with noise (rather than overlaying noise on top of
+    it) is what dissolves it: the fringes are only painted where the noise is
+    bright, so as the rings lose strength toward the rim the surviving specks
+    thin out with them. Overlaying would give an evenly grainy pattern with
+    crisp band edges — the wrong look, and the giveaway that it was done the
+    easy way.
+
+    The ring pattern itself is not here because it is computed, not written:
+    fringe radii go as √n, which no repeating-gradient can express. See
+    Fringes.tsx.
+
+    The noise SVG is a data URI, so there is no network request and no flash
+    of an unmasked gradient on first paint.
+  */
+  .grain-field {
+    opacity: var(--grain-opacity);
+
+    /*
+      Tiling noise. The two numbers to reach for when tuning the look are
+      `baseFrequency` (speckle size) and the feFuncA `slope` (speckle
+      contrast). They trade against each other:
+
+        high slope, coarse frequency  → visible dithered grain
+        low slope,  fine frequency    → fluid gradient with a tooth to it
+
+      This sits near the second. feTurbulence's alpha clusters tightly around
+      0.5, so masking with it raw lets about half of every pixel through
+      everywhere and averages out to a flat wash with no texture at all — the
+      transfer has to stretch that band *somewhat* or there is no grain. But
+      pushed hard (slope 2.6 was the first attempt) the specks resolve to
+      fully on or fully off and the fringes read as dithered rather than
+      liquid. Slope 1.4 keeps most pixels partial, so the texture rides on
+      top of a smooth gradient instead of replacing it.
+
+      baseFrequency is tuned against mask-size below: the SVG has no viewBox,
+      so one user unit is one rendered pixel, and 0.9 puts the grain near 1px.
+    */
+    --noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='1.4' intercept='-0.2'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+
+    mask-image: var(--noise);
+    mask-size: 200px 200px;
+    mask-repeat: repeat;
+
+    -webkit-mask-image: var(--noise);
+    -webkit-mask-size: 200px 200px;
+    -webkit-mask-repeat: repeat;
+  }
+
+  /*
+    The rings themselves, inside the masked element. They breathe — slowly
+    expanding and contracting — which is what an interferogram actually does
+    as the two surfaces approach and separate.
+
+    This is a child of .grain-field rather than the same element for two
+    reasons, and both matter:
+
+      1. The mask stays put. A mask belongs to the element it is set on, so
+         scaling a child leaves the grain at a fixed size while the pattern
+         moves underneath it. Scaling the masked element itself would breathe
+         the specks too, and film grain that pulses looks like a rendering
+         bug.
+      2. It composites on the GPU. `transform` is cheap; the obvious
+         alternative — animating `background-size` — repaints a full-viewport
+         gradient every frame.
+  */
+  .fringe-rings {
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .fringe-rings {
+      animation: fringe-breathe 26s ease-in-out infinite;
+    }
+  }
+
+  @keyframes fringe-breathe {
+    0%,
+    100% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.085);
+    }
+  }
+
+  /*
+    The field recedes as the page scrolls — it belongs to the hero, and left
+    at full strength it competes with the text of every section below.
+
+    Driven by a scroll-progress timeline rather than JS for the same reason
+    the reveals are: it is positional, so it cannot desynchronise from the
+    scroll position at any speed, and it needs no client bundle.
+  */
+  @supports (animation-timeline: scroll()) {
+    @media (prefers-reduced-motion: no-preference) {
+      .field-recede {
+        animation: field-recede linear both;
+        animation-timeline: scroll(root block);
+        /* Spread over more than one viewport so the fringes are still faintly
+           present through the first section rather than gone by the time the
+           hero clears. */
+        animation-range: 0 170vh;
+      }
+    }
+  }
+
+  /*
+    Applied to the outer wrapper, not to .grain-field — the field's own
+    `transform` belongs to the breathing animation, and two animations cannot
+    share a property. Splitting them across the two elements keeps both
+    running independently.
+
+    Deliberately gentle. Receding to near-nothing over a single viewport read
+    as the fringes being switched off; they only need to step back far enough
+    to stop competing with body text.
+  */
+  @keyframes field-recede {
+    to {
+      opacity: 0.55;
+      transform: scale(1.04);
+    }
+  }
+
+  /*
+    ── Hero entrance ───────────────────────────────────────────────────────
+    Staggered arrival for the hero, so the composition assembles rather than
+    simply being there on first paint.
+
+    The default state is VISIBLE — the animation only exists inside the
+    reduced-motion query, so a browser that skips it, or a visitor who has
+    asked for less motion, gets the finished layout immediately. Same
+    principle as `.reveal`: never let an entrance be the thing that decides
+    whether content is on the page.
+  */
+  @media (prefers-reduced-motion: no-preference) {
+    .enter {
+      animation: enter-in 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
+      animation-delay: var(--enter-delay, 0s);
+    }
+  }
+
+  @keyframes enter-in {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /*
+    The scroll cue's travelling rule. A hero that exactly fills the viewport
+    shows no overflow, so nothing but this says the page continues.
+  */
+  .cue-rule {
+    position: relative;
+    display: block;
+    width: 1px;
+    height: 2.5rem;
+    overflow: hidden;
+    background: color-mix(in oklab, var(--faint) 30%, transparent);
+  }
+
+  .cue-rule::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    height: 45%;
+    background: var(--faint);
+    /* Parked at the top when the animation does not run, so the rule still
+       reads as a marked edge rather than as an empty line. */
+    top: 0;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .cue-rule::after {
+      animation: cue-travel 2.6s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+    }
+  }
+
+  @keyframes cue-travel {
+    0% {
+      transform: translateY(-100%);
+    }
+    100% {
+      transform: translateY(340%);
+    }
+  }
+
+  /*
+    ── Scroll reveal ───────────────────────────────────────────────────────
+    The default state is VISIBLE. That is the whole point.
+
+    The obvious implementation is a JS IntersectionObserver (motion's
+    `whileInView`), but observers only report what they see at frame
+    boundaries: an element crossing the trigger band between two frames
+    during a fast scroll never fires, and with a one-shot reveal it then sits
+    at opacity 0 forever. That was measured here — up to 18 elements,
+    including entire sections, permanently invisible.
+
+    A scroll-driven timeline is positional rather than event-based, so its
+    progress is a pure function of where the element sits in the scrollport
+    and it cannot be missed at any scroll speed.
+
+    Browsers without `animation-timeline` (Firefox today) skip the @supports
+    block and render everything visible and static.
+  */
+  .reveal {
+    opacity: 1;
+  }
+
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+      .reveal {
+        animation: reveal-in linear both;
+        animation-timeline: view();
+        /* --reveal-shift staggers siblings without time-based delays, which
+           have no meaning on a scroll-driven timeline. */
+        animation-range: entry calc(2% + var(--reveal-shift, 0%)) entry
+          calc(58% + var(--reveal-shift, 0%));
+      }
+    }
+  }
+
+  @keyframes reveal-in {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /*
+    ── Type roles ──────────────────────────────────────────────────────────
+    Three registers, and the design uses almost nothing else:
+
+      .display — the nameplate. Very light, generously tracked, huge.
+      .micro   — small semibold sans. Nav, labels, the statement column.
+      .edge    — the rotated hairline labels on the left margin.
+  */
+  .display {
+    font-family: var(--font-display);
+    font-weight: 200;
+    letter-spacing: 0.01em;
+    line-height: 0.92;
+  }
+
+  .micro {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.004em;
+    line-height: 1.5;
+  }
+
+  .edge {
+    font-family: var(--font-geist-mono);
+    font-size: 0.625rem;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  /*
+    The mid-tier. Deliberately on the display face at 300 rather than on the
+    body face at 600, so it reads as a small nameplate rather than as bold
+    body text — it belongs to the top of the scale, not the bottom.
+
+    Added because the page went flat below the hero: every section was set at
+    one size, and with no register between the 200-weight nameplate and the
+    body there was nothing for the eye to land on.
+  */
+  .title {
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-size: 1.5rem;
+    letter-spacing: -0.014em;
+    line-height: 1.25;
+  }
+
+  /*
+    ── The editorial row ───────────────────────────────────────────────────
+    The layout every list item in the body shares:
+
+      metadata  │  prose  │  trailing rail
+      (fixed)   │ (capped)│  (flush right)
+
+    Prose cannot be stretched to fill a 1300px viewport — a line that long is
+    unreadable — so the width is filled with three different *kinds* of
+    content instead of one stretched one. The last column is what anchors the
+    right edge; without it the whole page slumps to the left, which is
+    exactly how this looked before.
+
+    `minmax(0, …)` on both flexible tracks, not plain `1fr`: grid tracks floor
+    at min-content, so a long unbroken string in the prose column would
+    otherwise blow the row past its container instead of wrapping.
+
+    Stacks to a single column below 768px, where there is no width to divide.
+  */
+  .row {
+    display: grid;
+    row-gap: 0.75rem;
+  }
+
+  @media (min-width: 768px) {
+    .row {
+      grid-template-columns: 10rem minmax(0, 40rem) minmax(0, 1fr);
+      column-gap: 2.5rem;
+      align-items: start;
+    }
+  }
+
+  /* The heading drifts a few pixels as the row is hovered. Small enough to
+     register as responsiveness rather than as an effect, and it tells you the
+     whole row is one object before you reach the link. */
+  @media (prefers-reduced-motion: no-preference) {
+    .row .title {
+      transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .row:hover .title {
+      transform: translateX(3px);
+    }
+  }
+
+  /*
+    Text links. Underline is the only affordance in a palette with no accent
+    colour, so it stays visible at rest and merely strengthens on hover.
+  */
+  .link {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.22em;
+    text-decoration-color: var(--faint);
+    /* The offset animates too, so the underline drops away from the text on
+       hover instead of only changing colour. With no accent colour to work
+       with, movement is the only other signal available. */
+    transition: text-decoration-color 0.2s ease, text-underline-offset 0.2s ease,
+      color 0.2s ease;
+  }
+
+  .link:hover {
+    text-decoration-color: currentColor;
+    text-underline-offset: 0.32em;
+  }
 }
