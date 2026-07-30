@@ -63,10 +63,6 @@ export const site = {
     "What I'm working toward is medicine and AI/health-tech, where those two halves stop competing for my attention. If you're building something in that space, I'd like to hear about it.",
   ],
 
-  /** Optional. Drop a photo in public/ and point here, or set to null to hide. */
-  // Placeholder monogram for now — swap to "/photo.jpg" once you have a headshot.
-  photo: "/photo.svg" as string | null,
-
   location: "Edmonton, Alberta",
 
   /**
