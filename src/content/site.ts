@@ -92,6 +92,5 @@ export const site = {
   ] satisfies SocialLink[],
 
   /** Canonical URL once deployed — used for link previews. */
-  // TODO: update after the first Vercel deploy
-  url: "https://justinwei.vercel.app",
+  url: "https://justinwei-dev.vercel.app",
 };
